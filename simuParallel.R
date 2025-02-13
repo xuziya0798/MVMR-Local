@@ -10,16 +10,16 @@ library(MASS)
 library(mvtnorm)
 library(ivreg)
 source('mvmr_local.R')
-source('TSHT.R')
-source('PostAlasso.R')
+source('mvmr_voting.R')
+
 
 #setwd('Desktop/project/MVMR')
 #----------our setting--------------------------
 Niter = 1000 # repeate 1000 times
-pz=p=16
+pz=p=10
 q=2
-n.list=c(4000,8000)
-
+n=n.list=4000
+c=0.2
 
 
 RunIter<-function(r,p,q,e0,a0=1,iter){
@@ -38,7 +38,7 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
     }
   else if(e0==2){ # majority rule + weak IV
     V<-sample(1:p,floor(0.7*p))
-    gam<-gam0*0.3
+    gam<-gam0*c
     pi[V]<-0
   }else if(e0==3){ # plurality rule + strong IV
     V<-sample(1:p,floor(0.5*p))
@@ -46,7 +46,7 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
     pi[V]<-0
   }else if(e0==4){ # plurality rule + weak IV
     V<-sample(1:p,floor(0.5*p))
-    gam<-gam0*0.3
+    gam<-gam0*c
     pi[V]<-0
   }else if(e0==5){ # validate setting
     pi=0.4*c(rep(1,4),rep(0,6),rep(1,5),rep(0,6))
@@ -55,6 +55,7 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
     beta=c(0.3,0.6)
   }
   re.all<-NULL
+  V=sort(V)
   for(n in n.list){
     Gam <- gam* beta + pi
       
@@ -70,25 +71,24 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
             }
           }
           
-          Omega=diag(1+q)*0.5
-          Omega[1,2]=0.25;Omega[1,3]=0.3
-          Omega=Omega+t(Omega)
+          Omega0=diag(1+q)*0.5
+          Omega0[1,2]=0.25;Omega0[1,3]=0.3
+          Omega0=Omega0+t(Omega0)
         }
         else{
            Sigma=diag(p)
-           Omega=matrix(0.4,1+q,1+q)+diag(1+q)*0.6
+           Omega0=matrix(0.4,1+q,1+q)+diag(1+q)*0.6
         }
         mu=rep(0,p);mu_e=rep(0,1+q)
         
         W=mvrnorm(n,mu,Sigma)
         Z=W[,1:p]
-        e=mvrnorm(n,mu_e,Omega); E=e[,1+1:q]
+        e=mvrnorm(n,mu_e,Omega0); E=e[,1+1:q]
         
         #data generation
         D=Z%*%gam+E
         Y=D%*%beta+Z%*%pi+e[,1]
-        #plot(density((gam.Y.hat/gam.D.hat)[abs(gam.D.hat/sd.gamD)>=tau0]))
-        #C.beta.l=-C.beta
+       
         
         grid.summ<-data.frame(matrix(NA, ncol = 9, nrow = iter))
         vote.summ<-data.frame(matrix(NA, ncol = 9, nrow = iter))
@@ -97,7 +97,7 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
         naiveTSHT.summ<-data.frame(matrix(NA, ncol = 9, nrow = iter))
         PostAlasso.summ<-data.frame(matrix(NA, ncol = 9, nrow = iter))
         PostAlassoBlock.summ<-data.frame(matrix(NA, ncol = 9, nrow = iter))
-        #colnames(grid.summ)<-colnames(vote.summ)<-c('AE1','AE2','SD1','SD2','Flag1CI','Flag2CI','AllValid','Identical','nB')
+   
         grid <- tryCatch(
           {
             res=mvmr_local(Y=Y,D=D,Z=Z,a0=a0)
@@ -119,7 +119,7 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
         }
         vote <- tryCatch(
           {
-            res=mvmr_local(Y=Y,D=D,Z=Z,a0=a0,vote=TRUE)
+            res=mvmr_voting(Y=Y,D=D,Z=Z,a0=a0)
           },
           error=function(e) {
             return(NULL)# Use default function here
@@ -130,12 +130,13 @@ RunIter<-function(r,p,q,e0,a0=1,iter){
         }
         else{
           betaHat=res$betaHat; CI=res$CI; SD=res$betaSD; VHat=res$VHat; BHatIndex=res$BHatIndex
-          
+
           AE=abs(betaHat-beta) #abosolute error
           FlagCI=((beta>=CI[,1])+(beta<=CI[,2])==2) # indicator of beta falling in the interval
           vote.summ[it,]<- c(as.numeric(AE[1]),as.numeric(AE[2]),SD[1],SD[2],
                              FlagCI[1],FlagCI[2],all(VHat %in% V),identical(VHat,V),pz-length(VHat))
         }
+        
         #naive 2SLS
         re.naive=ivreg::ivreg(Y ~ D   | Z)
         ci=confint(re.naive)[1+1:q,]
@@ -268,14 +269,7 @@ options(digits=3)
  result<- rbind(res1,res2,res3,res4,res5)
 
  
-write.csv(result,"mvmr-simu-r20p.csv",row.names = FALSE)
 
-
-
-result<-read.csv('mvmr-simu-r20p.csv')
-# 
-# 
-# # 使用dplyr进行分组和汇总
 result <- result %>%
   group_by(e, method, beta[1], n) %>%
   summarize(
@@ -289,7 +283,7 @@ result <- result %>%
     Identical=mean(na.omit(Identical)),
     ninV=mean(na.omit(ninV))
   )
-write.csv(result,"mvmr-simu-r20p-summ.csv",row.names = FALSE)
+write.csv(result,"mvmr-summ.csv",row.names = FALSE)
 
 
 
